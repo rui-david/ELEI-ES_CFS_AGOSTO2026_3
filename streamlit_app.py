@@ -62,7 +62,7 @@ conn.commit()
 # -------------------------
 # FUNÇÕES
 # -------------------------
-ddef carregar_socios_xlsx():
+def carregar_socios_xlsx():
     if not os.path.exists(ARQUIVO_SOCIOS):
         st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado!")
         return pd.DataFrame()
