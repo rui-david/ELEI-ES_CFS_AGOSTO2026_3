@@ -1,4 +1,4 @@
-impimport streamlit as st
+import streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
@@ -37,7 +37,7 @@ def carregar_socios_xlsx():
         return pd.DataFrame()
     try:
         df = pd.read_excel(ARQUIVO_SOCIOS)
-        df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Apaga coluna vazia
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
         df.columns = df.columns.str.strip().str.upper()
         mapeamento = {'NOME': 'nome', 'NÚMERO_DOCUMENTO': 'numero_documento', 'NUMERO_DOCUMENTO': 'numero_documento'}
         df = df.rename(columns=mapeamento)
@@ -68,7 +68,6 @@ def get_config(chave, default):
     return res[0] if res else default
 
 def set_config(chave, valor):
-    # Sempre salva no formato AAAA-MM-DD HH:MM
     if isinstance(valor, datetime):
         valor = valor.strftime("%Y-%m-%d %H:%M")
     cursor.execute("INSERT OR REPLACE INTO config VALUES (?,?)", (chave, valor))
@@ -77,7 +76,6 @@ def set_config(chave, valor):
 def get_datas():
     inicio_str = get_config("inicio", "2026-08-01 08:00")
     fim_str = get_config("fim", "2026-08-02 18:00")
-    # Pega só os primeiros 16 caracteres para evitar erro de segundos
     inicio_str = inicio_str[:16]
     fim_str = fim_str[:16]
     inicio = datetime.strptime(inicio_str, "%Y-%m-%d %H:%M")
@@ -117,17 +115,13 @@ def exportar_excel():
         df_socios.to_excel(writer, sheet_name='Socios', index=False)
     return output.getvalue()
 
-sincronizar_socios() # Carrega ao iniciar
+sincronizar_socios()
 
 tab1, tab2 = st.tabs(["🗳️ Votação Sócios", "⚙️ Área Administrador"])
 
-# TAB 1: VOTAÇÃO
 with tab1:
     inicio, fim = get_datas()
     st.info(f"**Período Oficial:** {inicio.strftime('%d/%m/%Y %H:%M')} até {fim.strftime('%d/%m/%Y %H:%M')}")
-    # Para bloquear fora do período, descomente as 2 linhas abaixo
-    # if not (inicio <= datetime.now() <= fim):
-    # st.warning("Fora do período de votação.")
 
     doc = st.text_input("Digite o seu Número de Documento")
     if st.button("Entrar", type="primary", use_container_width=True):
@@ -152,7 +146,6 @@ with tab1:
             st.session_state['logado'] = False
             st.rerun()
 
-# TAB 2: ADMIN
 with tab2:
     doc_admin = st.text_input("Documento Administrador", type="password", placeholder="Digite o código de acesso")
 
