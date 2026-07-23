@@ -5,100 +5,43 @@ from datetime import datetime
 import io
 import os
 
-# -------------------------
-# CONFIG
-# -------------------------
 st.set_page_config(page_title="Eleições do Clube Futebol os Sanjoanenses 2026", layout="centered")
 ARQUIVO_SOCIOS = "dados.xlsx"
-
-# CORES
-st.markdown("""
-<style>
-.stButton>button {
-    background-color: #004AAD;
-    color: white;
-    border-radius: 8px;
-    height: 3em;
-    width: 100%;
-}
-h1 {
-    color: #004AAD;
-}
-</style>
-""", unsafe_allow_html=True)
+DOC_ADMIN = "123548" # Só o admin sabe este número
 
 st.markdown("<h1>Eleições do Clube Futebol os Sanjoanenses 2026</h1>", unsafe_allow_html=True)
 
-# -------------------------
-# BASE DE DADOS
-# -------------------------
 conn = sqlite3.connect("dados.db", check_same_thread=False)
 cursor = conn.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS config (
-    chave TEXT PRIMARY KEY,
-    valor TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS socios (
-    numero_documento TEXT PRIMARY KEY,
-    nome TEXT,
-    votou INTEGER DEFAULT 0
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS votos (
-    numero_documento TEXT,
-    voto TEXT,
-    timestamp TEXT
-)
-""")
+cursor.execute("CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)")
+cursor.execute("CREATE TABLE IF NOT EXISTS socios (numero_documento TEXT PRIMARY KEY, nome TEXT, votou INTEGER DEFAULT 0)")
+cursor.execute("CREATE TABLE IF NOT EXISTS votos (numero_documento TEXT, voto TEXT, timestamp TEXT)")
 conn.commit()
 
-# -------------------------
-# FUNÇÕES
-# -------------------------
 def carregar_socios_xlsx():
     if not os.path.exists(ARQUIVO_SOCIOS):
         st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado!")
         return pd.DataFrame()
-    
     df = pd.read_excel(ARQUIVO_SOCIOS)
-    
-    # 1. Normalizar: tirar acento, espaço, deixar maiúsculo
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Apaga coluna vazia
     df.columns = df.columns.str.strip().str.upper()
-    
-    st.info(f"Colunas encontradas: {list(df.columns)}")
-    
-    # 2. Mapear os nomes que você usou
-    mapeamento = {
-        'NOME': 'nome',
-        'NÚMERO_DOCUMENTO': 'numero_documento',
-        'NUMERO_DOCUMENTO': 'numero_documento' # sem acento também
-    }
-    
+    mapeamento = {'NOME': 'nome', 'NÚMERO_DOCUMENTO': 'numero_documento', 'NUMERO_DOCUMENTO': 'numero_documento'}
     df = df.rename(columns=mapeamento)
-    
     if 'numero_documento' not in df.columns or 'nome' not in df.columns:
         st.error("Erro: Precisa ter as colunas NOME e NÚMERO_DOCUMENTO no Excel")
         return pd.DataFrame()
-    
     df['numero_documento'] = df['numero_documento'].astype(str).str.strip()
     df['nome'] = df['nome'].astype(str).str.strip()
     return df
 
 def sincronizar_socios():
     df = carregar_socios_xlsx()
-    if df.empty:
-        return False
+    if df.empty: return False
+    cursor.execute("DELETE FROM socios")
     for _, row in df.iterrows():
-        cursor.execute("INSERT OR IGNORE INTO socios (numero_documento, nome) VALUES (?,?)",
-                       (row['numero_documento'], row['nome']))
+        cursor.execute("INSERT INTO socios (numero_documento, nome) VALUES (?,?)", (row['numero_documento'], row['nome']))
     conn.commit()
+    st.success(f"{len(df)} sócios carregados com sucesso!")
     return True
 
 def get_config(chave, default):
@@ -111,27 +54,14 @@ def set_config(chave, valor):
     conn.commit()
 
 def get_datas():
-    inicio_str = get_config("inicio", "2026-04-25 00:00")
-    fim_str = get_config("fim", "2026-04-26 12:00")
+    inicio_str = get_config("inicio", "2026-08-01 08:00")
+    fim_str = get_config("fim", "2026-08-02 18:00")
     return datetime.strptime(inicio_str, "%Y-%m-%d %H:%M"), datetime.strptime(fim_str, "%Y-%m-%d %H:%M")
 
 def dentro_do_periodo():
     inicio, fim = get_datas()
     agora = datetime.now()
     return inicio <= agora <= fim
-
-def tempo_restante():
-    inicio, fim = get_datas()
-    agora = datetime.now()
-    if agora < inicio:
-        return f"Votação começa em: {inicio.strftime('%d/%m %H:%M')}"
-    elif agora > fim:
-        return "Votação encerrada"
-    else:
-        restante = fim - agora
-        horas, resto = divmod(restante.seconds, 3600)
-        minutos, _ = divmod(resto, 60)
-        return f"Tempo restante: {horas}h {minutos}min"
 
 def buscar_socio(doc):
     cursor.execute("SELECT * FROM socios WHERE numero_documento=?", (doc,))
@@ -166,79 +96,65 @@ def exportar_excel():
         df_socios.to_excel(writer, sheet_name='Socios', index=False)
     return output.getvalue()
 
-# Sincronizar socios ao iniciar
 sincronizar_socios()
 
-# -------------------------
-# TABS
-# -------------------------
 tab1, tab2 = st.tabs(["Votação Sócios", "Área Administrador"])
 
 # -------------------------
-# TAB VOTAÇÃO
+# TAB VOTAÇÃO - ABERTA SEMPRE PRA TESTE
 # -------------------------
 with tab1:
     inicio, fim = get_datas()
-    st.info(f"**Período:** {inicio.strftime('%d/%m %H:%M')} até {fim.strftime('%d/%m %H:%M')}")
-    st.write(tempo_restante())
+    st.info(f"**Período Oficial:** {inicio.strftime('%d/%m %H:%M')} até {fim.strftime('%d/%m %H:%M')}")
+    
+    # Deixei aberto pra teste. Se quiser bloquear de verdade, descomenta a linha abaixo
+    # if not dentro_do_periodo():
+    # st.warning("Fora do período de votação.")
 
-    if not dentro_do_periodo():
-        st.warning("Fora do período de votação.")
-    else:
-        doc = st.text_input("Número de Documento", key="doc_voto")
+    doc = st.text_input("Número de Documento")
+    if st.button("Entrar"):
+        socio = buscar_socio(doc)
+        if not socio:
+            st.error("Documento não encontrado na lista de sócios!")
+        elif ja_votou(doc):
+            st.error("Este documento já votou!")
+        else:
+            st.session_state['logado'] = True
+            st.session_state['doc'] = doc
+            st.session_state['nome'] = socio[1]
+            st.rerun()
 
-        if st.button("Entrar"):
-            socio = buscar_socio(doc)
-            if not doc:
-                st.error("Digite o número do documento")
-            elif not socio:
-                st.error("Documento não encontrado na lista de sócios!")
-            elif ja_votou(doc):
-                st.error("Este documento já votou!")
-            else:
-                st.session_state['logado'] = True
-                st.session_state['doc'] = doc
-                st.session_state['nome'] = socio[1]
-                st.rerun()
-
-        if st.session_state.get('logado'):
-            st.markdown("---")
-            st.success(f"Bem-vindo, {st.session_state['nome']}")
-            st.subheader("Escolha seu voto")
-            voto = st.radio("Você vota:", ["SIM", "NÃO"], horizontal=True)
-
-            if st.button("Confirmar Voto"):
-                votar(st.session_state['doc'], voto)
-                st.success("Voto registado com sucesso!")
-                st.balloons()
-                st.session_state['logado'] = False
-                st.session_state['doc'] = ""
-                st.session_state['nome'] = ""
-                st.rerun()
+    if st.session_state.get('logado'):
+        st.success(f"Bem-vindo, {st.session_state['nome']}")
+        voto = st.radio("Você vota:", ["SIM", "NÃO"], horizontal=True)
+        if st.button("Confirmar Voto"):
+            votar(st.session_state['doc'], voto)
+            st.success("Voto registado com sucesso!")
+            st.balloons()
+            st.session_state['logado'] = False
+            st.rerun()
 
 # -------------------------
-# TAB ADMIN
+# TAB ADMIN - SÓ COM DOCUMENTO
 # -------------------------
 with tab2:
-    st.caption("Acesso restrito: Rui Alberto da Cruz David - Doc: 123548")
-    doc_admin = st.text_input("Número de Documento Admin", key="doc_admin")
-    senha_admin = st.text_input("Senha Admin", type="password", key="senha_admin")
+    doc_admin = st.text_input("Número de Documento Administrador", type="password", help="Acesso restrito")
 
-    if doc_admin == "123548" and senha_admin == "123548":
+    if doc_admin == DOC_ADMIN:
         st.success("Acesso Administrador liberado")
 
         if st.button("🔄 Sincronizar Lista de Sócios"):
-            if sincronizar_socios():
-                st.success("Lista de sócios atualizada do dados.xlsx")
-            else:
-                st.error("Arquivo dados.xlsx não encontrado")
-
-        st.subheader("⚙️ Parametrizar Eleição")
+            sincronizar_socios()
+        
+        st.subheader("⚙️ Parametrizar Eleição - Funciona mesmo com votação aberta")
         inicio, fim = get_datas()
-        nova_data_inicio = st.date_input("Data Início", inicio.date())
-        nova_hora_inicio = st.time_input("Hora Início", inicio.time())
-        nova_data_fim = st.date_input("Data Fim", fim.date())
-        nova_hora_fim = st.time_input("Hora Fim", fim.time())
+        col1, col2 = st.columns(2)
+        with col1:
+            nova_data_inicio = st.date_input("Data Início", inicio.date())
+            nova_hora_inicio = st.time_input("Hora Início", inicio.time())
+        with col2:
+            nova_data_fim = st.date_input("Data Fim", fim.date())
+            nova_hora_fim = st.time_input("Hora Fim", fim.time())
 
         if st.button("Salvar Datas"):
             set_config("inicio", f"{nova_data_inicio} {nova_hora_inicio}")
@@ -247,33 +163,23 @@ with tab2:
             st.rerun()
 
         st.markdown("---")
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Reiniciar Votação"):
-                resetar_votacao()
-                st.warning("Todos os votos foram apagados! Lista de sócios mantida.")
-                st.rerun()
-        with col2:
-            excel_data = exportar_excel()
-            st.download_button(
-                label="📥 Exportar para Excel",
-                data=excel_data,
-                file_name=f"resultados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
-            )
+        if st.button("🔄 Reiniciar/Zerar Aplicativo", type="primary"):
+            resetar_votacao()
+            st.warning("Todos os votos foram apagados! Lista de sócios mantida.")
+        
+        excel_data = exportar_excel()
+        st.download_button("📥 Exportar Resultados para Excel", data=excel_data, file_name=f"resultados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
 
         st.markdown("---")
-        st.subheader("📊 Resultados")
+        st.subheader("📊 Resultados em Tempo Real")
         df_resultados, total_votos, total_socios = get_resultados()
-
         c1, c2, c3 = st.columns(3)
         c1.metric("Total de Votos", total_votos)
         c2.metric("Total de Sócios", total_socios)
         c3.metric("Participação", f"{(total_votos/total_socios*100):.1f}%" if total_socios > 0 else "0%")
-
         if not df_resultados.empty:
             st.table(df_resultados)
             st.bar_chart(df_resultados.set_index('voto'))
-        else:
-            st.info("Nenhum voto ainda.")
-    elif doc_admin or senha_admin:
-        st.error("Documento ou senha incorretos")
+            
+    elif doc_admin:
+        st.error("Documento de Administrador incorreto")
