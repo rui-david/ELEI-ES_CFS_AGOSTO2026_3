@@ -62,11 +62,33 @@ conn.commit()
 # -------------------------
 # FUNÇÕES
 # -------------------------
-def carregar_socios_xlsx():
+ddef carregar_socios_xlsx():
     if not os.path.exists(ARQUIVO_SOCIOS):
+        st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado!")
         return pd.DataFrame()
+    
     df = pd.read_excel(ARQUIVO_SOCIOS)
-    df['numero_documento'] = df['numero_documento'].astype(str)
+    
+    # 1. Normalizar: tirar acento, espaço, deixar maiúsculo
+    df.columns = df.columns.str.strip().str.upper()
+    
+    st.info(f"Colunas encontradas: {list(df.columns)}")
+    
+    # 2. Mapear os nomes que você usou
+    mapeamento = {
+        'NOME': 'nome',
+        'NÚMERO_DOCUMENTO': 'numero_documento',
+        'NUMERO_DOCUMENTO': 'numero_documento' # sem acento também
+    }
+    
+    df = df.rename(columns=mapeamento)
+    
+    if 'numero_documento' not in df.columns or 'nome' not in df.columns:
+        st.error("Erro: Precisa ter as colunas NOME e NÚMERO_DOCUMENTO no Excel")
+        return pd.DataFrame()
+    
+    df['numero_documento'] = df['numero_documento'].astype(str).str.strip()
+    df['nome'] = df['nome'].astype(str).str.strip()
     return df
 
 def sincronizar_socios():
