@@ -8,7 +8,7 @@ import os
 # -------------------------
 # CONFIG
 # -------------------------
-st.set_page_config(page_title="Sistema de Votação", layout="centered")
+st.set_page_config(page_title="Eleições do Clube Futebol os Sanjoanenses 2026", layout="centered")
 ARQUIVO_SOCIOS = "dados.xlsx"
 
 # CORES
@@ -27,7 +27,7 @@ h1 {
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1>Sistema de Votação</h1>", unsafe_allow_html=True)
+st.markdown("<h1>Eleições do Clube Futebol os Sanjoanenses 2026</h1>", unsafe_allow_html=True)
 
 # -------------------------
 # BASE DE DADOS
