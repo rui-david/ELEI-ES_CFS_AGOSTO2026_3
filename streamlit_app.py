@@ -1,29 +1,31 @@
-import streamlit as st
+impimport streamlit as st
 import sqlite3
 import pandas as pd
 from datetime import datetime
 import io
 import os
 
-st.set_page_config(page_title="Eleições CFS 2026", layout="centered")
+st.set_page_config(page_title="Eleições do Clube Futebol os Sanjoanenses 2026", layout="centered")
+
+# CONFIG
 ARQUIVO_SOCIOS = "dados.xlsx"
-ARQUIVO_LOGO = "logo_cfs.png" # Coloca o logo com esse nome na pasta
-DOC_ADMIN = "123548"
+ARQUIVO_LOGO = "logo_cfs.png" # Coloca o logo do CFS com este nome na pasta
+DOC_ADMIN = "123548" # Troca por outro número se quiser
 
 # CABEÇALHO COM LOGO
-col1, col2 = st.columns([1, 4])
+col1, col2 = st.columns([1, 5])
 with col1:
     if os.path.exists(ARQUIVO_LOGO):
-        st.image(ARQUIVO_LOGO, width=100)
+        st.image(ARQUIVO_LOGO, width=90)
     else:
-        st.warning("logo.png")
+        st.markdown("🏛️")
 with col2:
-    st.markdown("<h1>Eleições CFS 2026</h1>", unsafe_allow_html=True)
-    st.markdown("<h4>Clube Futebol os Sanjoanenses</h4>", unsafe_allow_html=True)
+    st.markdown("<h2>Eleições CFS 2026</h2>", unsafe_allow_html=True)
+    st.markdown("<h5>Clube Futebol os Sanjoanenses</h5>", unsafe_allow_html=True)
 
+# BANCO DE DADOS
 conn = sqlite3.connect("dados.db", check_same_thread=False, timeout=10)
 cursor = conn.cursor()
-
 cursor.execute("CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)")
 cursor.execute("CREATE TABLE IF NOT EXISTS socios (numero_documento TEXT PRIMARY KEY, nome TEXT, votou INTEGER DEFAULT 0)")
 cursor.execute("CREATE TABLE IF NOT EXISTS votos (numero_documento TEXT, voto TEXT, timestamp TEXT)")
@@ -31,30 +33,33 @@ conn.commit()
 
 def carregar_socios_xlsx():
     if not os.path.exists(ARQUIVO_SOCIOS):
-        st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado!")
+        st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado na pasta!")
         return pd.DataFrame()
-    df = pd.read_excel(ARQUIVO_SOCIOS)
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    df.columns = df.columns.str.strip().str.upper()
-    mapeamento = {'NOME': 'nome', 'NÚMERO_DOCUMENTO': 'numero_documento', 'NUMERO_DOCUMENTO': 'numero_documento'}
-    df = df.rename(columns=mapeamento)
-    df = df.drop_duplicates(subset=['numero_documento'], keep='first')
-    df = df[df['numero_documento'].astype(str).str.strip()!= '']
-    df['numero_documento'] = df['numero_documento'].astype(str).str.strip()
-    df['nome'] = df['nome'].astype(str).str.strip()
-    return df
+    try:
+        df = pd.read_excel(ARQUIVO_SOCIOS)
+        df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Apaga coluna vazia
+        df.columns = df.columns.str.strip().str.upper()
+        mapeamento = {'NOME': 'nome', 'NÚMERO_DOCUMENTO': 'numero_documento', 'NUMERO_DOCUMENTO': 'numero_documento'}
+        df = df.rename(columns=mapeamento)
+        df = df.drop_duplicates(subset=['numero_documento'], keep='first')
+        df = df[df['numero_documento'].astype(str).str.strip()!= '']
+        df['numero_documento'] = df['numero_documento'].astype(str).str.strip()
+        df['nome'] = df['nome'].astype(str).str.strip()
+        return df
+    except Exception as e:
+        st.error(f"Erro ao ler Excel: {e}")
+        return pd.DataFrame()
 
 def sincronizar_socios():
     df = carregar_socios_xlsx()
     if df.empty: return False
-
     novos = 0
     for _, row in df.iterrows():
         cursor.execute("INSERT OR IGNORE INTO socios (numero_documento, nome) VALUES (?,?)",
                        (row['numero_documento'], row['nome']))
         if cursor.rowcount > 0: novos += 1
     conn.commit()
-    st.success(f"Sincronizado! {novos} sócios novos adicionados. Total: {len(df)}")
+    st.success(f"Sincronizado! {novos} sócios novos adicionados. Total no Excel: {len(df)}")
     return True
 
 def get_config(chave, default):
@@ -63,13 +68,21 @@ def get_config(chave, default):
     return res[0] if res else default
 
 def set_config(chave, valor):
+    # Sempre salva no formato AAAA-MM-DD HH:MM
+    if isinstance(valor, datetime):
+        valor = valor.strftime("%Y-%m-%d %H:%M")
     cursor.execute("INSERT OR REPLACE INTO config VALUES (?,?)", (chave, valor))
     conn.commit()
 
 def get_datas():
     inicio_str = get_config("inicio", "2026-08-01 08:00")
     fim_str = get_config("fim", "2026-08-02 18:00")
-    return datetime.strptime(inicio_str, "%Y-%m-%d %H:%M"), datetime.strptime(fim_str, "%Y-%m-%d %H:%M")
+    # Pega só os primeiros 16 caracteres para evitar erro de segundos
+    inicio_str = inicio_str[:16]
+    fim_str = fim_str[:16]
+    inicio = datetime.strptime(inicio_str, "%Y-%m-%d %H:%M")
+    fim = datetime.strptime(fim_str, "%Y-%m-%d %H:%M")
+    return inicio, fim
 
 def buscar_socio(doc):
     cursor.execute("SELECT * FROM socios WHERE numero_documento=?", (doc,))
@@ -104,16 +117,20 @@ def exportar_excel():
         df_socios.to_excel(writer, sheet_name='Socios', index=False)
     return output.getvalue()
 
-sincronizar_socios()
+sincronizar_socios() # Carrega ao iniciar
 
-tab1, tab2 = st.tabs(["Votação Sócios", "Área Administrador"])
+tab1, tab2 = st.tabs(["🗳️ Votação Sócios", "⚙️ Área Administrador"])
 
+# TAB 1: VOTAÇÃO
 with tab1:
     inicio, fim = get_datas()
-    st.info(f"**Período Oficial:** {inicio.strftime('%d/%m %H:%M')} até {fim.strftime('%d/%m %H:%M')}")
+    st.info(f"**Período Oficial:** {inicio.strftime('%d/%m/%Y %H:%M')} até {fim.strftime('%d/%m/%Y %H:%M')}")
+    # Para bloquear fora do período, descomente as 2 linhas abaixo
+    # if not (inicio <= datetime.now() <= fim):
+    # st.warning("Fora do período de votação.")
 
-    doc = st.text_input("Número de Documento")
-    if st.button("Entrar", type="primary"):
+    doc = st.text_input("Digite o seu Número de Documento")
+    if st.button("Entrar", type="primary", use_container_width=True):
         socio = buscar_socio(doc)
         if not socio:
             st.error("Documento não encontrado na lista de sócios!")
@@ -126,17 +143,18 @@ with tab1:
             st.rerun()
 
     if st.session_state.get('logado'):
-        st.success(f"Bem-vindo, {st.session_state['nome']}")
-        voto = st.radio("Você vota:", ["SIM", "NÃO"], horizontal=True)
-        if st.button("Confirmar Voto"):
+        st.success(f"Bem-vindo, **{st.session_state['nome']}**")
+        voto = st.radio("O seu voto:", ["SIM", "NÃO"], horizontal=True)
+        if st.button("✅ Confirmar Voto"):
             votar(st.session_state['doc'], voto)
             st.success("Voto registado com sucesso!")
             st.balloons()
             st.session_state['logado'] = False
             st.rerun()
 
+# TAB 2: ADMIN
 with tab2:
-    doc_admin = st.text_input("Número de Documento Administrador", type="password")
+    doc_admin = st.text_input("Documento Administrador", type="password", placeholder="Digite o código de acesso")
 
     if doc_admin == DOC_ADMIN:
         st.success("Acesso Administrador liberado")
@@ -144,7 +162,7 @@ with tab2:
         if st.button("🔄 Sincronizar Lista de Sócios"):
             sincronizar_socios()
 
-        st.subheader("⚙️ Parametrizar Eleição")
+        st.subheader("Parametrizar Eleição")
         inicio, fim = get_datas()
         col1, col2 = st.columns(2)
         with col1:
@@ -155,21 +173,21 @@ with tab2:
             nova_hora_fim = st.time_input("Hora Fim", fim.time())
 
         if st.button("Salvar Datas"):
-            set_config("inicio", f"{nova_data_inicio} {nova_hora_inicio}")
-            set_config("fim", f"{nova_data_fim} {nova_hora_fim}")
+            set_config("inicio", datetime.combine(nova_data_inicio, nova_hora_inicio))
+            set_config("fim", datetime.combine(nova_data_fim, nova_hora_fim))
             st.success("Datas atualizadas!")
             st.rerun()
 
         st.markdown("---")
-        if st.button("🔄 Reiniciar/Zerar Votação", type="primary"):
+        if st.button("🔄 Reiniciar/Zerar Votação", type="primary", use_container_width=True):
             resetar_votacao()
-            st.warning("Todos os votos foram apagados!")
+            st.warning("Todos os votos foram apagados! Lista de sócios mantida.")
 
         excel_data = exportar_excel()
-        st.download_button("📥 Exportar Resultados", data=excel_data, file_name=f"resultados_CFS_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+        st.download_button("📥 Exportar Resultados Excel", data=excel_data, file_name=f"resultados_CFS_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx", use_container_width=True)
 
         st.markdown("---")
-        st.subheader("📊 Resultados em Tempo Real")
+        st.subheader("Resultados em Tempo Real")
         df_resultados, total_votos, total_socios = get_resultados()
         c1, c2, c3 = st.columns(3)
         c1.metric("Total de Votos", total_votos)
