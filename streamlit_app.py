@@ -37,9 +37,19 @@ def carregar_socios_xlsx():
 def sincronizar_socios():
     df = carregar_socios_xlsx()
     if df.empty: return False
+    
+    # 1. Remover duplicados do próprio Excel
+    df = df.drop_duplicates(subset=['numero_documento'], keep='first')
+    
+    # 2. Apagar tudo do banco e inserir de novo
     cursor.execute("DELETE FROM socios")
+    cursor.execute("DELETE FROM votos") # Zera os votos também pra não dar conflito
+    cursor.execute("UPDATE socios SET votou = 0")
+    
     for _, row in df.iterrows():
-        cursor.execute("INSERT INTO socios (numero_documento, nome) VALUES (?,?)", (row['numero_documento'], row['nome']))
+        if row['numero_documento'] != 'nan' and row['numero_documento'] != '': # Ignora linha vazia
+            cursor.execute("INSERT INTO socios (numero_documento, nome) VALUES (?,?)",
+                           (row['numero_documento'], row['nome']))
     conn.commit()
     st.success(f"{len(df)} sócios carregados com sucesso!")
     return True
