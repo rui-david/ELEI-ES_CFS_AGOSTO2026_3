@@ -16,7 +16,7 @@ with col1:
     if os.path.exists(ARQUIVO_LOGO):
         st.image(ARQUIVO_LOGO, width=100)
     else:
-        st.warning("Logo não encontrado")
+        st.warning("logo.png")
 with col2:
     st.markdown("<h1>Eleições CFS 2026</h1>", unsafe_allow_html=True)
     st.markdown("<h4>Clube Futebol os Sanjoanenses</h4>", unsafe_allow_html=True)
