@@ -5,14 +5,25 @@ from datetime import datetime
 import io
 import os
 
-st.set_page_config(page_title="Eleições do Clube Futebol os Sanjoanenses 2026", layout="centered")
+st.set_page_config(page_title="Eleições CFS 2026", layout="centered")
 ARQUIVO_SOCIOS = "dados.xlsx"
-DOC_ADMIN = "123548" # Só o admin sabe este número
+ARQUIVO_LOGO = "logo_cfs.png" # Coloca o logo com esse nome na pasta
+DOC_ADMIN = "123548"
 
-st.markdown("<h1>Eleições do Clube Futebol os Sanjoanenses 2026</h1>", unsafe_allow_html=True)
+# CABEÇALHO COM LOGO
+col1, col2 = st.columns([1, 4])
+with col1:
+    if os.path.exists(ARQUIVO_LOGO):
+        st.image(ARQUIVO_LOGO, width=100)
+    else:
+        st.warning("Logo não encontrado")
+with col2:
+    st.markdown("<h1>Eleições CFS 2026</h1>", unsafe_allow_html=True)
+    st.markdown("<h4>Clube Futebol os Sanjoanenses</h4>", unsafe_allow_html=True)
 
-conn = sqlite3.connect("dados.db", check_same_thread=False)
+conn = sqlite3.connect("dados.db", check_same_thread=False, timeout=10)
 cursor = conn.cursor()
+
 cursor.execute("CREATE TABLE IF NOT EXISTS config (chave TEXT PRIMARY KEY, valor TEXT)")
 cursor.execute("CREATE TABLE IF NOT EXISTS socios (numero_documento TEXT PRIMARY KEY, nome TEXT, votou INTEGER DEFAULT 0)")
 cursor.execute("CREATE TABLE IF NOT EXISTS votos (numero_documento TEXT, voto TEXT, timestamp TEXT)")
@@ -23,13 +34,12 @@ def carregar_socios_xlsx():
         st.error(f"Arquivo {ARQUIVO_SOCIOS} não encontrado!")
         return pd.DataFrame()
     df = pd.read_excel(ARQUIVO_SOCIOS)
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')] # Apaga coluna vazia
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
     df.columns = df.columns.str.strip().str.upper()
     mapeamento = {'NOME': 'nome', 'NÚMERO_DOCUMENTO': 'numero_documento', 'NUMERO_DOCUMENTO': 'numero_documento'}
     df = df.rename(columns=mapeamento)
-    if 'numero_documento' not in df.columns or 'nome' not in df.columns:
-        st.error("Erro: Precisa ter as colunas NOME e NÚMERO_DOCUMENTO no Excel")
-        return pd.DataFrame()
+    df = df.drop_duplicates(subset=['numero_documento'], keep='first')
+    df = df[df['numero_documento'].astype(str).str.strip()!= '']
     df['numero_documento'] = df['numero_documento'].astype(str).str.strip()
     df['nome'] = df['nome'].astype(str).str.strip()
     return df
@@ -37,21 +47,14 @@ def carregar_socios_xlsx():
 def sincronizar_socios():
     df = carregar_socios_xlsx()
     if df.empty: return False
-    
-    # 1. Remover duplicados do próprio Excel
-    df = df.drop_duplicates(subset=['numero_documento'], keep='first')
-    
-    # 2. Apagar tudo do banco e inserir de novo
-    cursor.execute("DELETE FROM socios")
-    cursor.execute("DELETE FROM votos") # Zera os votos também pra não dar conflito
-    cursor.execute("UPDATE socios SET votou = 0")
-    
+
+    novos = 0
     for _, row in df.iterrows():
-        if row['numero_documento'] != 'nan' and row['numero_documento'] != '': # Ignora linha vazia
-            cursor.execute("INSERT INTO socios (numero_documento, nome) VALUES (?,?)",
-                           (row['numero_documento'], row['nome']))
+        cursor.execute("INSERT OR IGNORE INTO socios (numero_documento, nome) VALUES (?,?)",
+                       (row['numero_documento'], row['nome']))
+        if cursor.rowcount > 0: novos += 1
     conn.commit()
-    st.success(f"{len(df)} sócios carregados com sucesso!")
+    st.success(f"Sincronizado! {novos} sócios novos adicionados. Total: {len(df)}")
     return True
 
 def get_config(chave, default):
@@ -67,11 +70,6 @@ def get_datas():
     inicio_str = get_config("inicio", "2026-08-01 08:00")
     fim_str = get_config("fim", "2026-08-02 18:00")
     return datetime.strptime(inicio_str, "%Y-%m-%d %H:%M"), datetime.strptime(fim_str, "%Y-%m-%d %H:%M")
-
-def dentro_do_periodo():
-    inicio, fim = get_datas()
-    agora = datetime.now()
-    return inicio <= agora <= fim
 
 def buscar_socio(doc):
     cursor.execute("SELECT * FROM socios WHERE numero_documento=?", (doc,))
@@ -110,19 +108,12 @@ sincronizar_socios()
 
 tab1, tab2 = st.tabs(["Votação Sócios", "Área Administrador"])
 
-# -------------------------
-# TAB VOTAÇÃO - ABERTA SEMPRE PRA TESTE
-# -------------------------
 with tab1:
     inicio, fim = get_datas()
     st.info(f"**Período Oficial:** {inicio.strftime('%d/%m %H:%M')} até {fim.strftime('%d/%m %H:%M')}")
-    
-    # Deixei aberto pra teste. Se quiser bloquear de verdade, descomenta a linha abaixo
-    # if not dentro_do_periodo():
-    # st.warning("Fora do período de votação.")
 
     doc = st.text_input("Número de Documento")
-    if st.button("Entrar"):
+    if st.button("Entrar", type="primary"):
         socio = buscar_socio(doc)
         if not socio:
             st.error("Documento não encontrado na lista de sócios!")
@@ -144,19 +135,16 @@ with tab1:
             st.session_state['logado'] = False
             st.rerun()
 
-# -------------------------
-# TAB ADMIN - SÓ COM DOCUMENTO
-# -------------------------
 with tab2:
-    doc_admin = st.text_input("Número de Documento Administrador", type="password", help="Acesso restrito")
+    doc_admin = st.text_input("Número de Documento Administrador", type="password")
 
     if doc_admin == DOC_ADMIN:
         st.success("Acesso Administrador liberado")
 
         if st.button("🔄 Sincronizar Lista de Sócios"):
             sincronizar_socios()
-        
-        st.subheader("⚙️ Parametrizar Eleição - Funciona mesmo com votação aberta")
+
+        st.subheader("⚙️ Parametrizar Eleição")
         inicio, fim = get_datas()
         col1, col2 = st.columns(2)
         with col1:
@@ -173,12 +161,12 @@ with tab2:
             st.rerun()
 
         st.markdown("---")
-        if st.button("🔄 Reiniciar/Zerar Aplicativo", type="primary"):
+        if st.button("🔄 Reiniciar/Zerar Votação", type="primary"):
             resetar_votacao()
-            st.warning("Todos os votos foram apagados! Lista de sócios mantida.")
-        
+            st.warning("Todos os votos foram apagados!")
+
         excel_data = exportar_excel()
-        st.download_button("📥 Exportar Resultados para Excel", data=excel_data, file_name=f"resultados_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+        st.download_button("📥 Exportar Resultados", data=excel_data, file_name=f"resultados_CFS_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
 
         st.markdown("---")
         st.subheader("📊 Resultados em Tempo Real")
@@ -190,6 +178,6 @@ with tab2:
         if not df_resultados.empty:
             st.table(df_resultados)
             st.bar_chart(df_resultados.set_index('voto'))
-            
+
     elif doc_admin:
         st.error("Documento de Administrador incorreto")
